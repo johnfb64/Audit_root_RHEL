@@ -1,0 +1,66 @@
+# =============================================================================
+# CHECK: Configuración de sudoers con escalación a root
+# Severidad: CRÍTICO / ADVERTENCIA
+# =============================================================================
+---
+
+- name: "SUDOERS | Leer /etc/sudoers"
+  ansible.builtin.shell: |
+    grep -v "^#" /etc/sudoers 2>/dev/null | grep -v "^$" || echo "VACIO"
+  register: sudoers_main
+  changed_when: false
+
+- name: "SUDOERS | Leer archivos en /etc/sudoers.d/"
+  ansible.builtin.shell: |
+    for f in /etc/sudoers.d/*; do
+      [ -f "$f" ] || continue
+      echo "=== ARCHIVO: $f ==="
+      grep -v "^#" "$f" | grep -v "^$"
+    done
+  register: sudoers_d
+  changed_when: false
+
+- name: "SUDOERS | Detectar escalación directa a root"
+  ansible.builtin.shell: |
+    {
+      cat /etc/sudoers 2>/dev/null
+      cat /etc/sudoers.d/* 2>/dev/null
+    } | grep -v "^#" | grep -v "^$" | while read line; do
+      # ALL=(ALL) sin restricción de comando
+      if echo "$line" | grep -qE "ALL=\(ALL\)\s+ALL$|ALL=\(ALL\)\s+NOPASSWD:\s+ALL"; then
+        echo "CRITICO|sudo_total_sin_restriccion|$line"
+        continue
+      fi
+      # Escalación a shell de root
+      if echo "$line" | grep -qE "(ALL|root).*(/bin/su|/bin/bash|/bin/sh|/usr/bin/bash)"; then
+        echo "CRITICO|escalacion_shell_root|$line"
+        continue
+      fi
+      # Runas explícito como root con cualquier comando
+      if echo "$line" | grep -qE "ALL=\(root\)"; then
+        echo "ADVERTENCIA|runas_root_explicito|$line"
+        continue
+      fi
+      # Defaults peligrosos
+      if echo "$line" | grep -qE "Defaults.*!requiretty|Defaults.*!authenticate"; then
+        echo "ADVERTENCIA|defaults_inseguro|$line"
+        continue
+      fi
+    done
+  register: sudoers_hallazgos
+  changed_when: false
+
+- name: "SUDOERS | Determinar severidad general"
+  ansible.builtin.set_fact:
+    audit_sudoers:
+      severidad: >-
+        {{
+          'CRITICO' if (sudoers_hallazgos.stdout_lines | select('match', '^CRITICO') | list | length > 0)
+          else 'ADVERTENCIA' if (sudoers_hallazgos.stdout_lines | select('match', '^ADVERTENCIA') | list | length > 0)
+          else 'OK'
+        }}
+      hallazgo: "{{ sudoers_hallazgos.stdout_lines | length > 0 }}"
+      hallazgos_criticos: "{{ sudoers_hallazgos.stdout_lines | select('match', '^CRITICO') | list }}"
+      hallazgos_advertencia: "{{ sudoers_hallazgos.stdout_lines | select('match', '^ADVERTENCIA') | list }}"
+      sudoers_main_contenido: "{{ sudoers_main.stdout_lines }}"
+      sudoers_d_contenido: "{{ sudoers_d.stdout_lines }}"

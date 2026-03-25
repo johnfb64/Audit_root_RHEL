@@ -1,0 +1,94 @@
+# =============================================================================
+# MAIN: Orquestador de checks de auditoría de root
+# =============================================================================
+---
+
+- name: "AUDIT | Cargar variables de usuarios genéricos"
+  ansible.builtin.include_vars:
+    file: usuarios_genericos.yml
+
+- name: "AUDIT | Registrar timestamp de inicio"
+  ansible.builtin.set_fact:
+    audit_timestamp: "{{ ansible_date_time.iso8601 }}"
+    audit_fecha: "{{ ansible_date_time.date }}"
+
+# -----------------------------------------------------------------------------
+# Ejecutar todos los checks
+# -----------------------------------------------------------------------------
+
+- name: "AUDIT | Check 1 - Usuarios con UID 0"
+  ansible.builtin.include_tasks: check_uid0.yml
+  tags: [uid0, critico]
+
+- name: "AUDIT | Check 2 - Configuración de sudoers"
+  ansible.builtin.include_tasks: check_sudoers.yml
+  tags: [sudoers, critico]
+
+- name: "AUDIT | Check 3 - Servicios systemd como root"
+  ansible.builtin.include_tasks: check_services.yml
+  tags: [services, alto]
+
+- name: "AUDIT | Check 4 - Procesos y scripts heredados"
+  ansible.builtin.include_tasks: check_processes.yml
+  tags: [processes, alto]
+
+- name: "AUDIT | Check 5 - Acceso SSH y estado cuenta root"
+  ansible.builtin.include_tasks: check_ssh.yml
+  tags: [ssh, advertencia]
+
+# -----------------------------------------------------------------------------
+# Calcular nivel de riesgo consolidado del host
+# -----------------------------------------------------------------------------
+
+- name: "AUDIT | Calcular nivel de riesgo general del host"
+  ansible.builtin.set_fact:
+    nivel_riesgo_general: >-
+      {{
+        'CRITICO' if (
+          audit_uid0.hallazgo or
+          audit_sudoers.severidad == 'CRITICO'
+        )
+        else 'ALTO' if (
+          audit_services.hallazgo or
+          audit_processes.hallazgo
+        )
+        else 'ADVERTENCIA' if (
+          audit_ssh.hallazgo or
+          audit_sudoers.severidad == 'ADVERTENCIA' or
+          audit_processes.severidad == 'ADVERTENCIA'
+        )
+        else 'OK'
+      }}
+
+# -----------------------------------------------------------------------------
+# Generar reporte JSON por host
+# -----------------------------------------------------------------------------
+
+- name: "AUDIT | Asegurar directorio de reportes en nodo de control"
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/../reports/{{ audit_fecha }}/por_host"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  run_once: false
+
+- name: "AUDIT | Generar reporte JSON por host"
+  ansible.builtin.template:
+    src: report_host.json.j2
+    dest: "{{ playbook_dir }}/../reports/{{ audit_fecha }}/por_host/{{ inventory_hostname }}.json"
+    mode: '0644'
+  delegate_to: localhost
+
+- name: "AUDIT | Mostrar resumen en consola"
+  ansible.builtin.debug:
+    msg:
+      - "======================================================"
+      - "HOST: {{ inventory_hostname }}"
+      - "NIVEL DE RIESGO: {{ nivel_riesgo_general }}"
+      - "------------------------------------------------------"
+      - "UID0 no-root:    {{ audit_uid0.severidad }}  | Hallazgos: {{ audit_uid0.usuarios_no_root_uid0 | length }}"
+      - "Sudoers:         {{ audit_sudoers.severidad }} | Críticos: {{ audit_sudoers.hallazgos_criticos | length }}"
+      - "Servicios root:  {{ audit_services.severidad }} | Cantidad: {{ audit_services.servicios_corriendo_como_root | length }}"
+      - "Procesos/rc:     {{ audit_processes.severidad }}"
+      - "SSH/cuenta root: {{ audit_ssh.severidad }}"
+      - "======================================================"

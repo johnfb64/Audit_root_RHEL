@@ -1,0 +1,54 @@
+{
+  "metadata": {
+    "host": "{{ inventory_hostname }}",
+    "ip": "{{ ansible_default_ipv4.address | default('desconocida') }}",
+    "so": "{{ ansible_distribution }} {{ ansible_distribution_version }}",
+    "kernel": "{{ ansible_kernel }}",
+    "ambiente": "{{ ambiente | default('no_definido') }}",
+    "division": "{{ division | default('no_definida') }}",
+    "timestamp_auditoria": "{{ audit_timestamp }}",
+    "ejecutado_por": "{{ ansible_user_id }}",
+    "nivel_riesgo_general": "{{ nivel_riesgo_general }}"
+  },
+  "hallazgos": {
+    "uid0": {
+      "severidad": "{{ audit_uid0.severidad }}",
+      "hallazgo": {{ audit_uid0.hallazgo | bool | lower }},
+      "usuarios_uid0_total": {{ audit_uid0.usuarios_uid0 | length }},
+      "usuarios_no_root_con_uid0": {{ audit_uid0.usuarios_no_root_uid0 | to_json }},
+      "detalle_usuarios": {{ audit_uid0.detalle | to_json }},
+      "claves_ssh_encontradas": {{ audit_uid0.claves_ssh | to_json }}
+    },
+    "sudoers": {
+      "severidad": "{{ audit_sudoers.severidad }}",
+      "hallazgo": {{ audit_sudoers.hallazgo | bool | lower }},
+      "criticos": {{ audit_sudoers.hallazgos_criticos | to_json }},
+      "advertencias": {{ audit_sudoers.hallazgos_advertencia | to_json }}
+    },
+    "servicios_systemd": {
+      "severidad": "{{ audit_services.severidad }}",
+      "hallazgo": {{ audit_services.hallazgo | bool | lower }},
+      "total_servicios_activos": {{ audit_services.total_servicios_activos }},
+      "servicios_corriendo_como_root": {{ audit_services.servicios_corriendo_como_root | to_json }},
+      "unit_files_sin_usuario_definido": {{ audit_services.unit_files_sin_usuario | to_json }}
+    },
+    "procesos_y_scripts": {
+      "severidad": "{{ audit_processes.severidad }}",
+      "hallazgo": {{ audit_processes.hallazgo | bool | lower }},
+      "procesos_root_fuera_systemd": {{ audit_processes.procesos_root_sin_systemd | to_json }},
+      "rc_local": {
+        "estado": "{{ audit_processes.rc_local_estado }}",
+        "contenido": {{ audit_processes.rc_local_contenido | to_json }}
+      },
+      "cron_root": {{ audit_processes.cron_root | to_json }}
+    },
+    "ssh_y_cuenta_root": {
+      "severidad": "{{ audit_ssh.severidad }}",
+      "hallazgo": {{ audit_ssh.hallazgo | bool | lower }},
+      "permit_root_login": "{{ audit_ssh.permit_root_login }}",
+      "authorized_keys_root": "{{ audit_ssh.authorized_keys }}",
+      "password_root": "{{ audit_ssh.password_root_estado }}",
+      "ultimo_login_root": {{ audit_ssh.ultimo_login_root | to_json }}
+    }
+  }
+}

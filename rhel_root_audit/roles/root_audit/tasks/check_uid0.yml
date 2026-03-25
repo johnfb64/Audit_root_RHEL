@@ -1,0 +1,54 @@
+# =============================================================================
+# CHECK: Usuarios con UID 0 (además de root)
+# Severidad: CRÍTICO
+# =============================================================================
+---
+
+- name: "UID0 | Obtener usuarios con UID 0"
+  ansible.builtin.shell: |
+    awk -F: '($3 == 0) {print $1}' /etc/passwd
+  register: uid0_users
+  changed_when: false
+
+- name: "UID0 | Verificar contraseña de usuarios UID0 no-root"
+  ansible.builtin.shell: |
+    awk -F: '($3 == 0) {print $1}' /etc/passwd | while read user; do
+      if [ "$user" != "root" ]; then
+        shadow=$(grep "^${user}:" /etc/shadow 2>/dev/null | cut -d: -f2)
+        if [ -z "$shadow" ]; then
+          status="sin_entrada_shadow"
+        elif [[ "$shadow" == "!"* ]] || [[ "$shadow" == "*" ]]; then
+          status="bloqueada"
+        elif [ -z "$shadow" ] || [ "$shadow" = "" ]; then
+          status="sin_password"
+        else
+          status="password_activa"
+        fi
+        shell=$(grep "^${user}:" /etc/passwd | cut -d: -f7)
+        home=$(grep "^${user}:" /etc/passwd | cut -d: -f6)
+        echo "${user}|${status}|${shell}|${home}"
+      fi
+    done
+  register: uid0_detail
+  changed_when: false
+
+- name: "UID0 | Verificar authorized_keys de usuarios UID0 no-root"
+  ansible.builtin.shell: |
+    awk -F: '($3 == 0 && $1 != "root") {print $1":"$6}' /etc/passwd | while IFS=: read user home; do
+      if [ -f "${home}/.ssh/authorized_keys" ]; then
+        count=$(wc -l < "${home}/.ssh/authorized_keys")
+        echo "${user}|${home}/.ssh/authorized_keys|${count}_claves"
+      fi
+    done
+  register: uid0_ssh_keys
+  changed_when: false
+
+- name: "UID0 | Registrar hallazgos"
+  ansible.builtin.set_fact:
+    audit_uid0:
+      severidad: "{{ 'CRITICO' if (uid0_users.stdout_lines | reject('equalto', 'root') | list | length > 0) else 'OK' }}"
+      usuarios_uid0: "{{ uid0_users.stdout_lines }}"
+      usuarios_no_root_uid0: "{{ uid0_users.stdout_lines | reject('equalto', 'root') | list }}"
+      detalle: "{{ uid0_detail.stdout_lines }}"
+      claves_ssh: "{{ uid0_ssh_keys.stdout_lines }}"
+      hallazgo: "{{ (uid0_users.stdout_lines | reject('equalto', 'root') | list | length > 0) }}"

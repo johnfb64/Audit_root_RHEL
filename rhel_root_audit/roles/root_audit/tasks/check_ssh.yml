@@ -1,0 +1,83 @@
+# =============================================================================
+# CHECK: Acceso SSH directo a root y estado de la cuenta root
+# Severidad: ADVERTENCIA / MEDIO
+# =============================================================================
+---
+
+- name: "SSH | Verificar PermitRootLogin en sshd_config"
+  ansible.builtin.shell: |
+    # Revisar archivo principal y directorio .d si existe
+    valor=""
+    # sshd_config.d tiene precedencia en versiones nuevas
+    if [ -d /etc/ssh/sshd_config.d ]; then
+      valor=$(grep -rh "^\s*PermitRootLogin" /etc/ssh/sshd_config.d/ 2>/dev/null | tail -1 | awk '{print $2}')
+    fi
+    if [ -z "$valor" ]; then
+      valor=$(grep "^\s*PermitRootLogin" /etc/ssh/sshd_config 2>/dev/null | tail -1 | awk '{print $2}')
+    fi
+    echo "${valor:-no_configurado_default_yes}"
+  register: permit_root_login
+  changed_when: false
+
+- name: "SSH | Verificar authorized_keys de root"
+  ansible.builtin.shell: |
+    if [ -f /root/.ssh/authorized_keys ] && [ -s /root/.ssh/authorized_keys ]; then
+      count=$(grep -c "^ssh\|^ecdsa\|^ed25519" /root/.ssh/authorized_keys 2>/dev/null || echo 0)
+      echo "EXISTE|${count}_claves"
+    else
+      echo "NO_EXISTE|0_claves"
+    fi
+  register: root_authorized_keys
+  changed_when: false
+
+- name: "SSH | Verificar estado de contraseña de root en /etc/shadow"
+  ansible.builtin.shell: |
+    shadow=$(grep "^root:" /etc/shadow 2>/dev/null | cut -d: -f2)
+    if [ -z "$shadow" ]; then
+      echo "sin_entrada"
+    elif [[ "$shadow" == "!"* ]] || [ "$shadow" = "*" ] || [ "$shadow" = "!!" ]; then
+      echo "bloqueada"
+    elif [ "$shadow" = "" ]; then
+      echo "sin_password"
+    else
+      echo "password_activa"
+    fi
+  register: root_password_estado
+  changed_when: false
+
+- name: "SSH | Último login de root"
+  ansible.builtin.shell: |
+    last_login=$(lastlog -u root 2>/dev/null | tail -1)
+    if echo "$last_login" | grep -q "Never logged in"; then
+      echo "nunca"
+    else
+      echo "$last_login"
+    fi
+    # También revisar últimas sesiones
+    echo "---SESIONES---"
+    last root 2>/dev/null | head -5 || echo "sin_registros"
+  register: root_last_login
+  changed_when: false
+
+- name: "SSH | Registrar hallazgos"
+  ansible.builtin.set_fact:
+    audit_ssh:
+      severidad: >-
+        {{
+          'ADVERTENCIA' if (
+            permit_root_login.stdout not in ['no', 'without-password', 'prohibit-password']
+            or root_authorized_keys.stdout.startswith('EXISTE')
+            or root_password_estado.stdout == 'password_activa'
+          )
+          else 'OK'
+        }}
+      hallazgo: >-
+        {{
+          permit_root_login.stdout not in ['no', 'without-password', 'prohibit-password']
+          or root_authorized_keys.stdout.startswith('EXISTE')
+          or root_password_estado.stdout == 'password_activa'
+        }}
+      permit_root_login: "{{ permit_root_login.stdout }}"
+      authorized_keys: "{{ root_authorized_keys.stdout }}"
+      password_root_estado: "{{ root_password_estado.stdout }}"
+      ultimo_login_root: "{{ root_last_login.stdout_lines }}"

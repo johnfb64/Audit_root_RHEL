@@ -1,0 +1,40 @@
+# =============================================================================
+# PLAYBOOK: Auditoría de configuración de root
+# Objetivo: SOLO LECTURA — ninguna tarea modifica el sistema
+# Uso:
+#   ansible-playbook -i inventory/lab.ini playbooks/audit_root.yml
+#   ansible-playbook -i inventory/lab.ini playbooks/audit_root.yml --tags uid0
+#   ansible-playbook -i inventory/lab.ini playbooks/audit_root.yml --limit saox1l0mdctlab08
+# =============================================================================
+---
+- name: "Auditoría de configuración de root — SOLO LECTURA"
+  hosts: laboratorio
+  gather_facts: true
+  become: true
+  serial: 10        # procesar de a 10 hosts en paralelo — ajustar según capacidad del nodo de control
+  any_errors_fatal: false   # si un host falla, continuar con los demás
+
+  pre_tasks:
+    - name: "PRE | Verificar conectividad básica"
+      ansible.builtin.ping:
+      register: ping_result
+      ignore_errors: true
+
+    - name: "PRE | Registrar host como inalcanzable si no responde ping"
+      ansible.builtin.set_fact:
+        host_inalcanzable: "{{ ping_result is failed }}"
+
+    - name: "PRE | Mostrar advertencia si host inalcanzable"
+      ansible.builtin.debug:
+        msg: "ADVERTENCIA: {{ inventory_hostname }} no responde — se omitirá la auditoría"
+      when: host_inalcanzable | bool
+
+  roles:
+    - role: root_audit
+      when: not (host_inalcanzable | default(false) | bool)
+
+  post_tasks:
+    - name: "POST | Confirmar reporte generado"
+      ansible.builtin.debug:
+        msg: "Reporte generado en reports/{{ ansible_date_time.date }}/por_host/{{ inventory_hostname }}.json"
+      when: not (host_inalcanzable | default(false) | bool)

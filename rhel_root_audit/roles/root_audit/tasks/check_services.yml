@@ -1,0 +1,74 @@
+# =============================================================================
+# CHECK: Servicios systemd corriendo como root
+# Severidad: ALTO
+# =============================================================================
+---
+
+- name: "SERVICES | Obtener servicios activos"
+  ansible.builtin.shell: |
+    systemctl list-units --type=service --state=running --no-pager --no-legend \
+      | awk '{print $1}'
+  register: servicios_activos
+  changed_when: false
+
+- name: "SERVICES | Identificar servicios corriendo como root"
+  ansible.builtin.shell: |
+    systemctl list-units --type=service --state=running --no-pager --no-legend \
+      | awk '{print $1}' | while read svc; do
+        # Obtener el User= del unit file
+        user=$(systemctl show "$svc" --property=User 2>/dev/null | cut -d= -f2)
+        exec_start=$(systemctl show "$svc" --property=ExecStart 2>/dev/null | cut -d= -f2 | cut -d' ' -f1)
+        fragment=$(systemctl show "$svc" --property=FragmentPath 2>/dev/null | cut -d= -f2)
+
+        # User vacío = corre como root (default de systemd)
+        # User=root = explícito
+        if [ -z "$user" ] || [ "$user" = "root" ]; then
+          # Filtrar servicios propios del SO
+          case "$svc" in
+            systemd-*|dbus*|NetworkManager*|firewalld*|sshd*|crond*|rsyslog*|\
+            auditd*|tuned*|polkit*|rhsmcertd*|chronyd*|lvm2*|multipathd*|\
+            dm-event*|getty*|plymouth*|kdump*|abrt*|smartd*|irqbalance*|\
+            rpcbind*|nfs*|gssproxy*|rngd*|selinux*|upower*|accounts-daemon*)
+              # Servicio de sistema — omitir
+              ;;
+            *)
+              echo "${svc}|${user:-root_por_defecto}|${exec_start}|${fragment}"
+              ;;
+          esac
+        fi
+      done
+  register: servicios_root
+  changed_when: false
+
+- name: "SERVICES | Verificar unit files con User= ausente o root"
+  ansible.builtin.shell: |
+    find /etc/systemd/system/ /usr/lib/systemd/system/ -name "*.service" 2>/dev/null \
+      | while read f; do
+          user=$(grep -E "^\s*User\s*=" "$f" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+          # Si tiene User= y no es root ni vacío, es OK
+          if [ -n "$user" ] && [ "$user" != "root" ]; then
+            continue
+          fi
+          # Si no tiene User= podría ser intencional del SO, filtrar los conocidos
+          svc=$(basename "$f")
+          case "$svc" in
+            systemd-*|dbus*|NetworkManager*|firewalld*|sshd*|crond*|rsyslog*|\
+            auditd*|tuned*|polkit*|rhsmcertd*|chronyd*|lvm2*|multipathd*|\
+            dm-event*|getty*|plymouth*|kdump*|abrt*|smartd*|irqbalance*)
+              ;;
+            *)
+              echo "${svc}|${user:-sin_user_definido}|${f}"
+              ;;
+          esac
+        done
+  register: unit_files_root
+  changed_when: false
+
+- name: "SERVICES | Registrar hallazgos"
+  ansible.builtin.set_fact:
+    audit_services:
+      severidad: "{{ 'ALTO' if (servicios_root.stdout_lines | length > 0) else 'OK' }}"
+      hallazgo: "{{ servicios_root.stdout_lines | length > 0 }}"
+      servicios_corriendo_como_root: "{{ servicios_root.stdout_lines }}"
+      unit_files_sin_usuario: "{{ unit_files_root.stdout_lines }}"
+      total_servicios_activos: "{{ servicios_activos.stdout_lines | length }}"

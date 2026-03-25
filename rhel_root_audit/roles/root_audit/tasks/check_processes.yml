@@ -1,0 +1,75 @@
+# =============================================================================
+# CHECK: Procesos corriendo como root fuera de systemd
+# (rc.local, scripts heredados, cron de root, procesos huérfanos)
+# Severidad: ALTO
+# =============================================================================
+---
+
+- name: "PROCESSES | Obtener procesos corriendo como root no-kernel"
+  ansible.builtin.shell: |
+    ps aux --no-headers | awk '$1 == "root" {print $2"|"$11"|"$12}' | \
+    while IFS="|" read pid cmd args; do
+      # Filtrar procesos de kernel (entre corchetes)
+      if echo "$cmd" | grep -q "^\["; then
+        continue
+      fi
+      # Filtrar procesos de sistema conocidos
+      case "$(basename $cmd)" in
+        systemd|sshd|crond|rsyslogd|auditd|tuned|NetworkManager|firewalld|\
+        polkitd|chronyd|dbus-daemon|udevd|multipathd|lvmetad|rpcbind|\
+        rhsmcertd|python*|ruby*|perl*)
+          # Algunos interpretes pueden ser legítimos, se incluyen para revisión manual
+          ;;
+      esac
+      # Verificar si el proceso tiene un unit de systemd padre
+      unit=$(cat /proc/${pid}/cgroup 2>/dev/null | grep -oP "(?<=\.service)" | head -1 || echo "")
+      parent_unit=$(systemctl status ${pid} 2>/dev/null | grep -oP "(?<=─)\d+" | head -1 || echo "sin_unit")
+      echo "${pid}|${cmd}|${args}|${parent_unit:-sin_unit_systemd}"
+    done | sort -u
+  register: procesos_root
+  changed_when: false
+
+- name: "PROCESSES | Verificar rc.local"
+  ansible.builtin.shell: |
+    if [ -f /etc/rc.local ] && [ -s /etc/rc.local ]; then
+      contenido=$(grep -v "^#" /etc/rc.local | grep -v "^$")
+      if [ -n "$contenido" ]; then
+        echo "EXISTE_CON_CONTENIDO"
+        grep -v "^#" /etc/rc.local | grep -v "^$"
+      else
+        echo "EXISTE_VACIO"
+      fi
+    else
+      echo "NO_EXISTE"
+    fi
+  register: rc_local
+  changed_when: false
+
+- name: "PROCESSES | Verificar cron de root"
+  ansible.builtin.shell: |
+    # Crontab personal de root
+    crontab -l -u root 2>/dev/null | grep -v "^#" | grep -v "^$" || echo "SIN_CRONTAB_ROOT"
+    echo "---CRON.D---"
+    # Archivos en cron.d
+    for f in /etc/cron.d/*; do
+      [ -f "$f" ] || continue
+      contenido=$(grep -v "^#" "$f" | grep -v "^$")
+      [ -n "$contenido" ] && echo "=== $f ===" && echo "$contenido"
+    done
+  register: cron_root
+  changed_when: false
+
+- name: "PROCESSES | Registrar hallazgos"
+  ansible.builtin.set_fact:
+    audit_processes:
+      severidad: >-
+        {{
+          'ALTO' if (procesos_root.stdout_lines | length > 0 or rc_local.stdout_lines[0] == 'EXISTE_CON_CONTENIDO')
+          else 'ADVERTENCIA' if (cron_root.stdout != 'SIN_CRONTAB_ROOT')
+          else 'OK'
+        }}
+      hallazgo: "{{ procesos_root.stdout_lines | length > 0 }}"
+      procesos_root_sin_systemd: "{{ procesos_root.stdout_lines }}"
+      rc_local_estado: "{{ rc_local.stdout_lines[0] }}"
+      rc_local_contenido: "{{ rc_local.stdout_lines[1:] | default([]) }}"
+      cron_root: "{{ cron_root.stdout_lines }}"

@@ -1,0 +1,56 @@
+# =============================================================================
+# Usuarios genéricos válidos de la organización
+# Estos usuarios NO serán reportados como hallazgo aunque tengan entradas
+# en sudoers, siempre y cuando sus permisos sean a usuarios de aplicación
+# y NO a root.
+#
+# IMPORTANTE: Actualizar esta lista con los usuarios reales antes de ejecutar.
+# =============================================================================
+
+usuarios_genericos_validos:
+  - svcsatrmtupg       # usuario Ansible/Satellite
+  - svcmonitor         # monitoreo (ejemplo)
+  - svcbackup          # backup (ejemplo)
+  - svcmiddleware      # middleware (ejemplo)
+  - svcdba             # DBA (ejemplo)
+  # Agregar aquí los usuarios reales del directorio activo/Centrify
+
+# Procesos de sistema que corren como root y son NORMALES (no se reportan)
+procesos_sistema_root:
+  - sshd
+  - systemd
+  - rsyslogd
+  - crond
+  - auditd
+  - tuned
+  - NetworkManager
+  - firewalld
+  - polkitd
+  - rhsm
+  - rhsmcertd
+  - satellite
+  - foreman
+  - puppet
+  - osad
+  - salt-minion
+  - amazon-ssm-agent
+  - chronyd
+  - dbus-daemon
+  - udevd
+  - kthreadd
+  - migration
+  - watchdog
+  - kworker
+  - ksoftirqd
+
+# Comandos sudo que apuntan a root y son hallazgo aunque tengan comando específico
+# (escalar a shell interactivo es siempre un hallazgo)
+patrones_sudo_criticos:
+  - "/bin/su"
+  - "/bin/su -"
+  - "/bin/bash"
+  - "/bin/sh"
+  - "/usr/bin/bash"
+  - "/sbin/bash"
+  - "sudo -i"
+  - "sudo su"
