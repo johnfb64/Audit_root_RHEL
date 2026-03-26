@@ -7,7 +7,7 @@ nivel_criticidad: bajo
 division: "por_definir"   # sobreescribir en group_vars por país cuando se expanda
 
 # Usuario Ansible (Satellite)
-ansible_user: svcsatrmtupg
+ansible_user: admin
 ansible_become: true
 ansible_become_method: sudo
 ansible_become_password: ""   # NOPASSWD configurado — dejar vacío

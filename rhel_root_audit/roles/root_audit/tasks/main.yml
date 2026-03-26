@@ -81,14 +81,61 @@
 
 - name: "AUDIT | Mostrar resumen en consola"
   ansible.builtin.debug:
-    msg:
-      - "======================================================"
-      - "HOST: {{ inventory_hostname }}"
-      - "NIVEL DE RIESGO: {{ nivel_riesgo_general }}"
-      - "------------------------------------------------------"
-      - "UID0 no-root:    {{ audit_uid0.severidad }}  | Hallazgos: {{ audit_uid0.usuarios_no_root_uid0 | length }}"
-      - "Sudoers:         {{ audit_sudoers.severidad }} | Críticos: {{ audit_sudoers.hallazgos_criticos | length }}"
-      - "Servicios root:  {{ audit_services.severidad }} | Cantidad: {{ audit_services.servicios_corriendo_como_root | length }}"
-      - "Procesos/rc:     {{ audit_processes.severidad }}"
-      - "SSH/cuenta root: {{ audit_ssh.severidad }}"
-      - "======================================================"
+    msg: >-
+      {{
+        ['======================================================',
+         'HOST: ' + inventory_hostname,
+         'NIVEL DE RIESGO: ' + nivel_riesgo_general,
+         '======================================================',
+         '[1] USUARIOS CON UID 0 | Severidad: ' + audit_uid0.severidad,
+         '  Todos con UID 0: ' + (audit_uid0.usuarios_uid0 | join(', '))]
+        + (audit_uid0.detalle
+           | map('regex_replace', '[|][^|]*[|][^|]*$', '')
+           | map('regex_replace', '[|]', '  pw: ')
+           | map('regex_replace', '^', '  >> [ALERTA] ')
+           | list
+           if audit_uid0.hallazgo | bool else ['  >> Sin usuarios no-root con UID 0'])
+        + ['------------------------------------------------------',
+           '[2] SUDOERS | Severidad: ' + audit_sudoers.severidad
+           + ' | Criticos: ' + (audit_sudoers.hallazgos_criticos | length | string)
+           + ' | Advertencias: ' + (audit_sudoers.hallazgos_advertencia | length | string)]
+        + (audit_sudoers.hallazgos_criticos
+           | map('regex_replace', '^[^|]+[|][^|]+[|]', '  >> [CRITICO]     ')
+           | list
+           if audit_sudoers.hallazgos_criticos | length > 0 else ['  >> Sin hallazgos'])
+        + (audit_sudoers.hallazgos_advertencia
+           | map('regex_replace', '^[^|]+[|][^|]+[|]', '  >> [ADVERTENCIA] ')
+           | list
+           if audit_sudoers.hallazgos_advertencia | length > 0 else [])
+        + ['------------------------------------------------------',
+           '[3] SERVICIOS CORRIENDO COMO ROOT | Severidad: ' + audit_services.severidad
+           + ' | Cantidad: ' + (audit_services.servicios_corriendo_como_root | length | string)]
+        + (audit_services.servicios_corriendo_como_root
+           | map('regex_replace', '[|].*$', '')
+           | map('regex_replace', '^', '  >> ')
+           | list
+           if audit_services.servicios_corriendo_como_root | length > 0 else ['  >> Sin hallazgos'])
+        + ['------------------------------------------------------',
+           '[4] PROCESOS COMO ROOT | Severidad: ' + audit_processes.severidad,
+           '  rc.local: ' + audit_processes.rc_local_estado]
+        + (audit_processes.procesos_root_sin_systemd
+           | map('regex_replace', '[|][^|]*$', '')
+           | map('regex_replace', '[|]', ' ')
+           | map('regex_replace', '^', '  >> PID: ')
+           | list
+           if audit_processes.procesos_root_sin_systemd | length > 0 else ['  >> Sin procesos huerfanos'])
+        + ['  cron root:']
+        + (audit_processes.cron_root
+           | reject('equalto', 'SIN_CRONTAB_ROOT')
+           | reject('equalto', '---CRON.D---')
+           | map('regex_replace', '^', '  >> ')
+           | list
+           if (audit_processes.cron_root | reject('equalto', 'SIN_CRONTAB_ROOT') | list | length > 0)
+           else ['  >> Sin entradas de cron para root'])
+        + ['------------------------------------------------------',
+           '[5] SSH / CUENTA ROOT | Severidad: ' + audit_ssh.severidad,
+           '  >> PermitRootLogin : ' + audit_ssh.permit_root_login,
+           '  >> Password root   : ' + audit_ssh.password_root_estado,
+           '  >> Authorized keys : ' + audit_ssh.authorized_keys,
+           '======================================================']
+      }}

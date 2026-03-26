@@ -30,47 +30,68 @@
         csv_filas: >-
           {{
             csv_filas | default([]) + [{
-              'servidor':         (item.content | b64decode | from_json).metadata.host,
-              'ip':               (item.content | b64decode | from_json).metadata.ip,
-              'so':               (item.content | b64decode | from_json).metadata.so,
-              'ambiente':         (item.content | b64decode | from_json).metadata.ambiente,
-              'division':         (item.content | b64decode | from_json).metadata.division,
-              'nivel_riesgo':     (item.content | b64decode | from_json).metadata.nivel_riesgo_general,
-              'uid0_hallazgo':    (item.content | b64decode | from_json).hallazgos.uid0.hallazgo,
-              'uid0_usuarios':    (item.content | b64decode | from_json).hallazgos.uid0.usuarios_no_root_con_uid0 | join(';'),
-              'sudoers_severidad':(item.content | b64decode | from_json).hallazgos.sudoers.severidad,
-              'sudoers_criticos': (item.content | b64decode | from_json).hallazgos.sudoers.criticos | length,
-              'servicios_root':   (item.content | b64decode | from_json).hallazgos.servicios_systemd.servicios_corriendo_como_root | length,
-              'rc_local':         (item.content | b64decode | from_json).hallazgos.procesos_y_scripts.rc_local.estado,
-              'ssh_root':         (item.content | b64decode | from_json).hallazgos.ssh_y_cuenta_root.permit_root_login,
-              'password_root':    (item.content | b64decode | from_json).hallazgos.ssh_y_cuenta_root.password_root,
-              'authorized_keys':  (item.content | b64decode | from_json).hallazgos.ssh_y_cuenta_root.authorized_keys_root,
-              'timestamp':        (item.content | b64decode | from_json).metadata.timestamp_auditoria
+              'servidor':          (item.content | b64decode | from_json).metadata.host,
+              'ip':                (item.content | b64decode | from_json).metadata.ip,
+              'so':                (item.content | b64decode | from_json).metadata.so,
+              'ambiente':          (item.content | b64decode | from_json).metadata.ambiente,
+              'division':          (item.content | b64decode | from_json).metadata.division,
+              'nivel_riesgo':      (item.content | b64decode | from_json).metadata.nivel_riesgo_general,
+              'uid0_hallazgo':     (item.content | b64decode | from_json).hallazgos.uid0.hallazgo,
+              'uid0_usuarios':     (item.content | b64decode | from_json).hallazgos.uid0.usuarios_no_root_con_uid0 | join('; '),
+              'sudoers_severidad': (item.content | b64decode | from_json).hallazgos.sudoers.severidad,
+              'sudoers_criticos':  (item.content | b64decode | from_json).hallazgos.sudoers.criticos | length,
+              'sudoers_detalle':   (item.content | b64decode | from_json).hallazgos.sudoers.criticos
+                                   | map('regex_replace', '^[^|]+[|][^|]+[|]', '') | join(' | '),
+              'servicios_root':    (item.content | b64decode | from_json).hallazgos.servicios_systemd.servicios_corriendo_como_root | length,
+              'servicios_detalle': (item.content | b64decode | from_json).hallazgos.servicios_systemd.servicios_corriendo_como_root
+                                   | map('regex_replace', '[|].*$', '') | join('; '),
+              'rc_local':          (item.content | b64decode | from_json).hallazgos.procesos_y_scripts.rc_local.estado,
+              'procesos_detalle':  (item.content | b64decode | from_json).hallazgos.procesos_y_scripts.procesos_root_fuera_systemd
+                                   | map('regex_replace', '[|][^|]*$', '')
+                                   | map('regex_replace', '[|]', ' ')
+                                   | join('; '),
+              'cron_root':         (item.content | b64decode | from_json).hallazgos.procesos_y_scripts.cron_root
+                                   | reject('equalto', 'SIN_CRONTAB_ROOT')
+                                   | reject('equalto', '---CRON.D---')
+                                   | reject('match', '^===')
+                                   | reject('match', '^SHELL=')
+                                   | reject('match', '^PATH=')
+                                   | reject('match', '^MAILTO=')
+                                   | join('; '),
+              'ssh_root':          (item.content | b64decode | from_json).hallazgos.ssh_y_cuenta_root.permit_root_login,
+              'password_root':     (item.content | b64decode | from_json).hallazgos.ssh_y_cuenta_root.password_root,
+              'authorized_keys':   (item.content | b64decode | from_json).hallazgos.ssh_y_cuenta_root.authorized_keys_root,
+              'timestamp':         (item.content | b64decode | from_json).metadata.timestamp_auditoria
             }]
           }}
       loop: "{{ reportes_contenido.results }}"
 
-    - name: "CONSOLIDAR | Escribir encabezado CSV"
-      ansible.builtin.copy:
-        content: >-
-          servidor,ip,so,ambiente,division,nivel_riesgo,uid0_hallazgo,uid0_usuarios,
-          sudoers_severidad,sudoers_criticos,servicios_root,rc_local,
-          ssh_root,password_root,authorized_keys,timestamp
-        dest: "{{ reporte_dir }}/consolidado_{{ fecha }}.csv"
-        mode: '0644'
+    - name: "CONSOLIDAR | Generar CSV con Python"
+      ansible.builtin.shell: |
+        python3 << 'PYEOF'
+        import csv, json, sys
 
-    - name: "CONSOLIDAR | Agregar filas al CSV"
-      ansible.builtin.lineinfile:
-        path: "{{ reporte_dir }}/consolidado_{{ fecha }}.csv"
-        line: >-
-          {{ item.servidor }},{{ item.ip }},{{ item.so }},{{ item.ambiente }},
-          {{ item.division }},{{ item.nivel_riesgo }},{{ item.uid0_hallazgo }},
-          "{{ item.uid0_usuarios }}",{{ item.sudoers_severidad }},
-          {{ item.sudoers_criticos }},{{ item.servicios_root }},{{ item.rc_local }},
-          {{ item.ssh_root }},{{ item.password_root }},{{ item.authorized_keys }},
-          {{ item.timestamp }}
-        insertafter: EOF
-      loop: "{{ csv_filas }}"
+        filas = {{ csv_filas | to_json }}
+        destino = "{{ reporte_dir }}/consolidado_{{ fecha }}.csv"
+
+        campos = [
+            'servidor', 'ip', 'so', 'ambiente', 'division', 'nivel_riesgo',
+            'uid0_hallazgo', 'uid0_usuarios',
+            'sudoers_severidad', 'sudoers_criticos', 'sudoers_detalle',
+            'servicios_root', 'servicios_detalle',
+            'rc_local', 'procesos_detalle', 'cron_root',
+            'ssh_root', 'password_root', 'authorized_keys', 'timestamp'
+        ]
+
+        with open(destino, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=campos, quoting=csv.QUOTE_ALL)
+            writer.writeheader()
+            for fila in filas:
+                writer.writerow({k: str(fila.get(k, '')) for k in campos})
+
+        print("CSV generado: " + destino)
+        PYEOF
+      changed_when: true
 
     - name: "CONSOLIDAR | Mostrar resumen final"
       ansible.builtin.debug:
