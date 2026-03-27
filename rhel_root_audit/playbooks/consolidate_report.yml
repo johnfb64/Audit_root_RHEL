@@ -71,6 +71,9 @@
       ansible.builtin.shell: |
         python3 << 'PYEOF'
         import csv, json, sys
+        true = True
+        false = False
+        null = None
 
         filas = {{ csv_filas | to_json }}
         destino = "{{ reporte_dir }}/consolidado_{{ fecha }}.csv"
