@@ -20,6 +20,28 @@
   register: sudoers_d
   changed_when: false
 
+- name: "SUDOERS | Verificar existencia en SO de usuarios con acceso root"
+  ansible.builtin.shell: |
+    {
+      cat /etc/sudoers 2>/dev/null
+      cat /etc/sudoers.d/* 2>/dev/null
+    } | grep -v "^#" | grep -v "^$" | grep -v "^Defaults" \
+      | grep -vE "^(Cmnd_Alias|User_Alias|Host_Alias|Runas_Alias)" \
+      | while read line; do
+      candidato=$(echo "$line" | awk '{print $1}')
+      # Saltar entradas de grupos (empiezan con %)
+      echo "$candidato" | grep -q "^%" && continue
+      # Solo si tiene acceso completo a root
+      if echo "$line" | grep -qE "ALL=\(ALL\)\s+ALL$|ALL=\(ALL\)\s+NOPASSWD:\s+ALL|ALL=\(root\)|.*(/bin/su|/bin/bash|/bin/sh|/usr/bin/bash)"; then
+        # Verificar si el usuario existe en el sistema
+        if getent passwd "$candidato" > /dev/null 2>&1; then
+          echo "$candidato"
+        fi
+      fi
+    done | sort -u
+  register: sudoers_usuarios_existentes
+  changed_when: false
+
 - name: "SUDOERS | Detectar escalación directa a root"
   ansible.builtin.shell: |
     {
@@ -64,3 +86,4 @@
       hallazgos_advertencia: "{{ sudoers_hallazgos.stdout_lines | select('match', '^ADVERTENCIA') | list }}"
       sudoers_main_contenido: "{{ sudoers_main.stdout_lines }}"
       sudoers_d_contenido: "{{ sudoers_d.stdout_lines }}"
+      usuarios_con_acceso_root: "{{ sudoers_usuarios_existentes.stdout_lines }}"

@@ -42,6 +42,7 @@
               'sudoers_criticos':  (item.content | b64decode | from_json).hallazgos.sudoers.criticos | length,
               'sudoers_detalle':   (item.content | b64decode | from_json).hallazgos.sudoers.criticos
                                    | map('regex_replace', '^[^|]+[|][^|]+[|]', '') | join(' | '),
+              'sudoers_usuarios_root_existentes': (item.content | b64decode | from_json).hallazgos.sudoers.usuarios_con_acceso_root_existentes | join('; '),
               'servicios_root':    (item.content | b64decode | from_json).hallazgos.servicios_systemd.servicios_corriendo_como_root | length,
               'servicios_detalle': (item.content | b64decode | from_json).hallazgos.servicios_systemd.servicios_corriendo_como_root
                                    | map('regex_replace', '[|].*$', '') | join('; '),
@@ -77,7 +78,7 @@
         campos = [
             'servidor', 'ip', 'so', 'ambiente', 'division', 'nivel_riesgo',
             'uid0_hallazgo', 'uid0_usuarios',
-            'sudoers_severidad', 'sudoers_criticos', 'sudoers_detalle',
+            'sudoers_severidad', 'sudoers_criticos', 'sudoers_detalle', 'sudoers_usuarios_root_existentes',
             'servicios_root', 'servicios_detalle',
             'rc_local', 'procesos_detalle', 'cron_root',
             'ssh_root', 'password_root', 'authorized_keys', 'timestamp'

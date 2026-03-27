@@ -23,7 +23,8 @@
       "severidad": "{{ audit_sudoers.severidad }}",
       "hallazgo": {{ audit_sudoers.hallazgo | bool | lower }},
       "criticos": {{ audit_sudoers.hallazgos_criticos | to_json }},
-      "advertencias": {{ audit_sudoers.hallazgos_advertencia | to_json }}
+      "advertencias": {{ audit_sudoers.hallazgos_advertencia | to_json }},
+      "usuarios_con_acceso_root_existentes": {{ audit_sudoers.usuarios_con_acceso_root | to_json }}
     },
     "servicios_systemd": {
       "severidad": "{{ audit_services.severidad }}",
