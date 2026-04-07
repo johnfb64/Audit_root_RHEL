@@ -67,15 +67,19 @@
           }}
       loop: "{{ reportes_contenido.results }}"
 
+    - name: "CONSOLIDAR | Escribir datos a archivo temporal"
+      ansible.builtin.copy:
+        content: "{{ csv_filas | to_json }}"
+        dest: "/tmp/audit_data_{{ fecha }}.json"
+
     - name: "CONSOLIDAR | Generar CSV con Python"
       ansible.builtin.shell: |
         python3 << 'PYEOF'
-        import csv, json, sys
-        true = True
-        false = False
-        null = None
+        import csv, json
 
-        filas = {{ csv_filas | to_json }}
+        with open('/tmp/audit_data_{{ fecha }}.json') as f:
+            filas = json.load(f)
+
         destino = "{{ reporte_dir }}/consolidado_{{ fecha }}.csv"
 
         campos = [
@@ -96,6 +100,11 @@
         print("CSV generado: " + destino)
         PYEOF
       changed_when: true
+
+    - name: "CONSOLIDAR | Limpiar archivo temporal"
+      ansible.builtin.file:
+        path: "/tmp/audit_data_{{ fecha }}.json"
+        state: absent
 
     - name: "CONSOLIDAR | Mostrar resumen final"
       ansible.builtin.debug:
