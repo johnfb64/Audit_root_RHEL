@@ -30,6 +30,7 @@
   changed_when: false
 
 - name: "PROCESSES | Verificar rc.local"
+  when: false  # Deshabilitado: contenido estándar corporativo, no relevante para el reporte
   ansible.builtin.shell: |
     if [ -f /etc/rc.local ] && [ -s /etc/rc.local ]; then
       contenido=$(grep -v "^#" /etc/rc.local | grep -v "^$")
@@ -64,12 +65,12 @@
     audit_processes:
       severidad: >-
         {{
-          'ALTO' if (procesos_root.stdout_lines | length > 0 or rc_local.stdout_lines[0] == 'EXISTE_CON_CONTENIDO')
+          'ALTO' if (procesos_root.stdout_lines | length > 0)
           else 'ADVERTENCIA' if (cron_root.stdout != 'SIN_CRONTAB_ROOT')
           else 'OK'
         }}
       hallazgo: "{{ procesos_root.stdout_lines | length > 0 }}"
       procesos_root_sin_systemd: "{{ procesos_root.stdout_lines }}"
-      rc_local_estado: "{{ rc_local.stdout_lines[0] }}"
-      rc_local_contenido: "{{ rc_local.stdout_lines[1:] | default([]) }}"
+      rc_local_estado: "DESHABILITADO"
+      rc_local_contenido: []
       cron_root: "{{ cron_root.stdout_lines }}"
