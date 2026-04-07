@@ -15,7 +15,7 @@
     for f in /etc/sudoers.d/*; do
       [ -f "$f" ] || continue
       echo "=== ARCHIVO: $f ==="
-      grep -v "^#" "$f" | grep -v "^$"
+      grep -v "^#" "$f" | grep -v "^$" || true
     done
   register: sudoers_d
   changed_when: false
